@@ -1,32 +1,127 @@
-defmodule Servi.Handler do
+defmodule Servy.Handler do
+  @moduledoc """
+  Handles HTTP Requests
+  """
+
+  import Servy.Plugins, only: [log: 1, track: 1]
+  import Servy.Parser, only: [parse: 1]
+  alias Servy.Conv
+
+  @pages_path Path.expand("../../pages", __DIR__)
+
+  @doc "Transforms a request into a response"
   def handle(request) do
     request
     |> parse
+    |> log
+    |> track
     |> route
     |> format_response
   end
 
-  def parse(request) do
-    [method, path, _] =
-      request
-      |> String.split("/n")
-      |> List.first()
-      |> String.split(" ")
-
-    %{method: method, path: path, resp_body: ""}
+  def route(%Conv{method: "GET", path: "/wildthings"} = conv) do
+    %{conv | status: 200, resp_body: "Bears, Lions, Tigers"}
   end
 
-  def route(conv) do
-    conv = %{method: "GET", path: "/wildthings", resp_body: "Bears, Lions, Tigers"}
+  def route(%Conv{method: "GET", path: "/bears"} = conv) do
+    %{conv | status: 200, resp_body: "Bearie, Paddington, Teddy"}
   end
 
-  def format_response(conv) do
+  # name=Baloo&type=Brown
+  def route(%Conv{method: "POST", path: "/bears", params: params} = conv) do
+    %{conv | status: 201, resp_body: "Created a #{params["type"]} bear named #{params["name"]}"}
+  end
+
+  def route(%Conv{method: "GET", path: "/bears/" <> id} = conv) do
+    %{conv | status: 200, resp_body: "#{id} Bearie"}
+  end
+
+
+  def route(%Conv{method: "GET", path: "/about"} = conv) do
+    @pages_path
+    |> Path.join("about.html")
+    |> File.read()
+    |> handle_file(conv)
+  end
+
+  def route(%Conv{path: path} = conv) do
+    %{conv | status: 200, resp_body: "No #{path} here!"}
+  end
+
+  def handle_file({:ok, content}, conv) do
+    %{conv | status: 200, resp_body: content}
+  end
+
+  def handle_file({:error, :enoent}, conv) do
+    %{conv | status: 404, resp_body: "File not found!"}
+  end
+
+  def handle_file({:error, reason}, conv) do
+    %{conv | status: 500, resp_body: "File error: #{reason}"}
+  end
+
+  def format_response(%Conv{} = conv) do
     """
-    HTTP/1.1 200 OK
+    HTTP/1.1 #{Conv.full_status(conv)}
     Content-Type: text/html
-    Content-Length: 20
+    Content-Length: #{String.length(conv.resp_body)}
 
-    Bears, Lions, Tigers
+    #{conv.resp_body}
     """
   end
 end
+
+
+# TODO: Remove everything below
+request = """
+GET /bears HTTP/1.1
+Host: example.com
+User-Agent: ExampleBrowser/1.0
+Accept: */*
+
+"""
+
+response = Servy.Handler.handle(request)
+
+IO.puts(response)
+
+request = """
+GET /bears/1 HTTP/1.1
+Host: example.com
+User-Agent: ExampleBrowser/1.0
+Accept: */*
+
+"""
+
+response = Servy.Handler.handle(request)
+
+IO.puts(response)
+
+request = """
+GET /about HTTP/1.1
+Host: example.com
+User-Agent: ExampleBrowser/1.0
+Accept: */*
+
+"""
+
+response = Servy.Handler.handle(request)
+
+IO.puts(response)
+
+
+# POST request
+request = """
+POST /bears HTTP/1.1
+Host: example.com
+User-Agent: ExampleBrowser/1.0
+Accept: */*
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 21
+
+name=Baloo&type=Brown
+"""
+
+response = Servy.Handler.handle(request)
+
+IO.puts(response)
